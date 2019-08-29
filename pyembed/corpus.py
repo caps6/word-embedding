@@ -87,15 +87,3 @@ class Corpus:
             raise TypeError('Document index must be an integer.')
         except IndexError:
             raise IndexError('Document not found at given index.')
-
-
-if __name__=='__main__':
-
-    corpus = Corpus()
-    num_files = corpus.discover('/var/www/html/andrea/stuff/word-embedding/data',recursive=True)
-
-    print(len(corpus))
-    print(corpus.num_chars)
-    print(corpus.num_words)
-
-    print(corpus[1])
