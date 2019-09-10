@@ -9,7 +9,7 @@ DESCRIPTION = 'Embed your own words (with word2vec).'
 URL = 'https://github.com/acapitanelli/word-embedding'
 AUTHOR = 'Andrea Capitanelli'
 EMAIL = 'andrea@capitanelli.gmail.com'
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 
 # short/long description
 here = os_path.abspath(os_path.dirname(__file__))

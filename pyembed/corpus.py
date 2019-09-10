@@ -1,89 +1,35 @@
 # -*- coding: utf-8 -*-
-from os import path, walk, listdir
+from os import path, walk
+from .dictionary import Dictionary
 
 class Corpus:
-    """Collection of text documents. Corpus objects discover and store text
-    files found in specified path. File search can be recursive, i.e. traversing
+    """Collection of text documents. Corpus objects discover and store files
+    .txt found in specified path. File search is recursive, i.e. it traverses
     also subfolders.
 
     Attributes:
-        num_chars: Number of characters in corpus.
-        num_words: Number of words in corpus.
+        top_dir: Top directory of txt documents.
+        dictionary: Dictionary object which contains mapping of tokens.
     """
 
-    def __init__(self):
+    def __init__(self, top_dir):
         """Object initialization. """
 
-        self._docs = []
-        self.num_chars = 0
-        self.num_words = 0
+        self.top_dir = top_dir
+        # create token map
+        self.dictionary = Dictionary(self.iterate_documents(top_dir))
 
-    def discover(self, root_dir, recursive=True):
-        """Discovers text files and stores parsed content.
+    def iterate_documents(self, top_dir):
+        """Iterates over all txt files, yielding one document at a time."""
 
-        Args:
-            root_dir: Folder to discover.
-            recursive: Traverses also subfolders in given path.
+        for root, _, files in walk(self.top_dir):
+            for fname in filter(lambda fname: fname.endswith('.txt'), files):
+                with open(path.join(root, fname), 'r', encoding='utf-8') as file:
+                    doc = file.read()
 
-        Returns:
-            Number of text files parsed.
-        """
-
-        text_files = []
-        if recursive:
-            for root, _, files in walk(root_dir):
-                text_files = self._find_files(text_files, root, files)
-        else:
-            text_files = self._find_files(text_files, root_dir, listdir(root_dir))
-
-        num_files = len(text_files)
-
-        for fn in text_files:
-            self.parse(fn)
-
-        return num_files
-
-    def parse(self, filepath):
-        """Parses a text document."""
-
-        with open(filepath, 'r', encoding='utf-8') as f:
-            text = f.read()
-
-        self.num_chars += len(text.replace(' ',''))
-        self.num_words += len(text.split())
-
-        self._docs.append(text)
-
-    def _find_files(self, text_files, root, discovered):
-        """Checks for actual text files to parse."""
-        for fn in discovered:
-            filepath = path.join(root, fn)
-            if path.isfile(filepath) and fn.endswith('.txt'):
-                text_files.append(filepath)
-
-        return text_files
+                yield doc
 
     def __iter__(self):
-        self._iter_count = 0
-        self.num_docs = len(self._docs)
-        return self
-
-    def __next__(self):
-        if self._iter_count<self.num_docs:
-            doc = self[self._iter_count]
-            self._iter_count += 1
-        else:
-            raise StopIteration
-        return doc
-
-    def __len__(self):
-        return len(self._docs)
-
-    def __getitem__(self, key):
-        """ Access a document from corpus. """
-        try:
-            return self._docs[key]
-        except TypeError:
-            raise TypeError('Document index must be an integer.')
-        except IndexError:
-            raise IndexError('Document not found at given index.')
+        """Implements iterable method."""
+        for doc in self.iterate_documents(self.top_dir):
+            yield doc

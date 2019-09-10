@@ -2,74 +2,133 @@
 import numpy as np
 
 class NeuralNet:
-    """ Class for word2vec neural net. """
+    """ Class for the word2vec neural net.
 
-    def __init__(self, vocab_size, emb_size, learning_rate, num_negative,
-        scale):
-        """ Initialize input and hidden layers of neural net.
+    Attributes:
+        W1: Matrix with weights of hidden layer.
+        W2: Matrix with weights of output layer.
 
-        vocab_size: int. vocabulary size of your corpus or training data
-        emb_size: int. word embedding size
+    """
+
+    def __init__(self, vocab_size, emb_size, learning_rate, negative):
+        """Initializes input and hidden layers of neural net.
+
+        Args:
+            vocab_size: Vocabulary size of your corpus or training data.
+            emb_size: Word embedding size.
+            learning_rate: Rate for weight update equations.
+            negative: If greater than 0, it is the number of negative samples.
+                If less or equal to 0, negative sampling is disabled.
         """
 
+        # parameters
         self.vocab_size = vocab_size
         self.emb_size = emb_size
         self.learning_rate = learning_rate
-        self.num_negative = num_negative
-        self.wrd_emb = scale*np.random.randn(vocab_size, emb_size)
-        self.W = scale*np.random.randn(vocab_size, emb_size)
+        self.negative = negative
 
-    def propagate(self, X, sampling_inds):
-        """ Runs neural net against a batch of training samples.
+        # init weight matrices
+        self.W1 = 0.01*np.random.randn(vocab_size, emb_size)
+        self.W2 = 0.01*np.random.randn(emb_size, vocab_size)
+
+    def forward_propagate(self, input_label, sampling_inds):
+        """Performs the forward propagation.
+
+        Args:
+            input_label: Label of input word.
+            sampling_inds: Labels of negative samples (used if negative
+                sampling is applied).
+
+        Returns:
+            Numpy array: Output out of softmax (shape: vocab_size).
+            Numpy array: Embedding of input word (shape: embedding_size).
         """
 
-        # hidden layer: convert input ids into embedding vectors.
-        word_vec = self.wrd_emb[X, :].T
-        # output layer
-        Z = np.dot(self.W[sampling_inds,:], word_vec)
-        # softmax output
-        softmax_out = self.softmax(Z)
+        # output from hidden layer
+        h_vector = self.W1[input_label, :]
 
-        return softmax_out, word_vec
+        # evaluate output
+        if self.negative > 0:
 
-    def back_propagate(self, X, Y, softmax_out, word_vec, sampling_inds):
+            # output layer - matrix output
+            z_vector = np.dot(h_vector, self.W2[:, sampling_inds])
+            # output layer - model output
+            y_vector = self.sigmoid(z_vector)
+
+        else:
+
+            # output layer - matrix output
+            z_vector = np.dot(h_vector, self.W2)
+            # output layer - model output
+            y_vector = self.softmax(z_vector)
+
+        return y_vector, h_vector
+
+    def back_propagate(self, input_label, t_vector, y_vector, h_vector,
+        sampling_inds):
         """Updates weights of neural net using backpropagation with descent
         gradient method.
 
         Gradients are evaluated using chain rule for partial derivatives.
-        Only weights related to a small set of tokens are updated, following
-        negative sampling technique.
 
         Args:
-            Y: labels of training data. shape: (vocab_size, batch_size)
-            softmax_out: output out of softmax. shape: (vocab_size, batch_size)
+            input_label: Label of input word.
+            t_vector: Labels of training data (shape: vocab_size).
+            y_vector: Output out of softmax (shape: vocab_size).
+            h_vector: Output from hidden layer.
+            sampling_inds: Labels of positive + negative samples (used only if
+                negative sampling is applied).
         """
-
-        batch_size = word_vec.shape[1]
-
-        dL_dZ = softmax_out - Y[sampling_inds, :]
-
-        #dL_dZ = softmax_out[sampling_inds, :] - Y[sampling_inds, :]
-        #dL_dZ = softmax_out
-        #dL_dZ[Y.flatten(), np.arange(batch_size)] -= 1
 
         # evaluate gradients
-        dL_dW = (1 / batch_size) * np.dot(dL_dZ, word_vec.T)
-        dL_dword_vec = np.dot(self.W.T[:, sampling_inds], dL_dZ)
-        #self.W -= self.learning_rate * dL_dW
+        dL_dZ = y_vector - t_vector
 
-        # update hidden/output layers
-        #dL_dword_vec = np.dot(self.W.T, dL_dZ)
-        self.W[sampling_inds, :] -= self.learning_rate * dL_dW
-        self.wrd_emb[X,:] -= self.learning_rate * dL_dword_vec.T
+        if self.negative > 0:
 
-    def softmax(self, Z):
+            dL_dW1 = np.dot(self.W2[:, sampling_inds], dL_dZ)
+            dL_dW2 = np.outer(dL_dZ, h_vector).T
+
+            # update output matrix
+            self.W2[:, sampling_inds] -= self.learning_rate * dL_dW2
+
+        else:
+
+            dL_dW1 = np.dot(self.W2, dL_dZ)
+            dL_dW2 = np.outer(dL_dZ, h_vector).T
+
+            # update output matrix
+            self.W2 -= self.learning_rate * dL_dW2
+
+        # update hidden matrix (same for both cases)
+        self.W1[input_label,:] -= self.learning_rate * dL_dW1
+
+    def sigmoid(self, z_vector):
+        """Sigmoid function for output layer.
+
+        Args:
+            z_vector: Output W2 matrix (shape: vocab_size, 1).
+
+        Returns:
+            Numpy array: The output of model.
         """
-        Z: output of dense layer. shape: (vocab_size, batch_size)
+
+        sigmoid_out = 1/(1 + np.exp(-z_vector))
+
+        return sigmoid_out
+
+    def softmax(self, z_vector):
+        """Softmax function for output layer.
+
+        Args:
+            z_vector: Output W2 matrix (shape: vocab_size, 1).
+
+        Returns:
+            Numpy vector: The output of model.
         """
 
         # for stability issues
-        x = Z-np.max(Z)
-        softmax_out = np.divide(np.exp(x), np.sum(np.exp(x), axis=0, keepdims=True) + 0.001)
+        x = z_vector-np.max(z_vector)
+        softmax_out = np.divide(np.exp(x), np.sum(np.exp(x), axis=0,
+            keepdims=True) + 0.001)
 
         return softmax_out

@@ -4,102 +4,112 @@
 Word embedding based on word2vec skip-gram algoritm.
 
 """
-
 import pickle
-from datetime import datetime
-#from sys import stdout
 from os import path
+from logging.handlers import RotatingFileHandler
+import logging
 import numpy as np
 from .datastore import DataStore
 from .tokenizer import Tokenizer
-from .mapping import TokenMap
-from .sampling import Sampler
+from .dictionary import Dictionary
+from .sampler import Sampler
 from .corpus import Corpus
 from .nn import NeuralNet
 
 __author__ = "Andrea Capitanelli"
 __license__ = "MIT"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __maintainer__ = "Andrea Capitanelli"
 __email__ = "andrea@capitanelli.gmail.com"
 __status__ = "Prototype"
 
+def get_logger():
+    """Get streaming logger."""
 
-def train(data_dir, recursive=True, sample_scale=0.001, win_size=5,
+    logger = logging.getLogger('word-embedding')
+
+    # stream logging
+    stream_log_formatter = logging.Formatter('%(asctime)s : %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+    stream_log_handler = logging.StreamHandler()
+    stream_log_handler.setFormatter(stream_log_formatter)
+    logger.addHandler(stream_log_handler)
+    logger.setLevel('INFO')
+
+    return logger
+
+def draw_negative(unigram_table, unigram_table_size, negative):
+    """Draws negative samples from the unigram table."""
+
+    negative_labels = unigram_table[np.random.randint(0, high=unigram_table_size,
+        size=negative, dtype='int')]
+
+    return negative_labels
+
+def train(data_dir, min_count=5, sample=0.001, win_size=5,
     dry_run=False, embedding_size=300, learning_rate=0.025, num_epochs=5000,
-    batch_size=256, num_neg=5, utable_size=100000000):
+    negative=5, utable_size=100000000):
     """Main public function.
 
-    Performs word embedding on a corpus of documents and saves result to a
-    binary file.
+    Performs word embedding on a corpus of txt documents and saves results to a
+    binary (pickled) file.
 
     Args:
         data_dir: Folder with documents of corpus to parse.
-        recursive: If true, also subfolders are traversed. Default: true.
-        sample_scale: Scale factor for subsampling probability.
         win_size: Size of moving window for context words.
         dry_run: If true, loads corpus, generates and saves training samples
             without performing NN training.
-        sample_scale: Scale factor for subsampling probability.
+        min_count: Minimum frequency for words to be sampled.
+        sample: Scale factor for subsampling probability.
         embedding_size: Embedding size.
         learning_rate: NN learning rate for gradient descent.
         num_epochs: Num. of epochs to train.
-        batch_size: Size of batch for training samples.
-        num_neg: Num. of negative samples.
+        negative: Num. of negative samples.
         utable_size: Size of table for unigram distribution.
 
     """
-    
-    corpus = Corpus()
-    num_files = corpus.discover(data_dir, recursive=recursive)
-    print(f'Loaded {num_files} documents in corpus.')
 
-    tokenizer = Tokenizer(ascii_only=True)
-    token_map = TokenMap(corpus, tokenizer=tokenizer, sample_scale=sample_scale)
+    logger = get_logger()
+
+    # generate training data
+    # ----------------------------------------- #
+
+    # parse corpus
+    corpus = Corpus(data_dir)
 
     # generate training samples and save to disk
-    sampler = Sampler(tokenizer=tokenizer, token_map=token_map, datapath=data_dir, win_size=win_size)
+    sampler = Sampler(win_size, min_count, sample, datapath=data_dir)
     num_samples, discarded = sampler(corpus)
     gain = 100*discarded/(num_samples+discarded)
-    print(f'Generated {num_samples} samples, with {discarded} tokens discarded ({gain:.2f}%).')
-
+    logger.info(f'Generated {num_samples} samples, with {discarded} tokens discarded ({gain:.2f}%).')
     if dry_run:
         raise SystemExit(0)
 
     # load sampling data
     # ----------------------------------------- #
 
-    # token map
-    print('Loading token map... ', end='')
-    token_store = DataStore.load(path.join(data_dir,*('samples','tokenmap.store')))
-    print('done.')
+    # X/Y labels
+    logger.info('Loading input/output labels...')
+    X = DataStore.load(path.join(data_dir, *('samples', 'input.store')))
+    Y = DataStore.load(path.join(data_dir, *('samples', 'output.store')))
 
-    # X labels
-    print('Loading input labels... ', end='')
-    X = DataStore.load(path.join(data_dir,*('samples','input.store')))
-    print('done.')
-
-    # Y labels
-    print('Loading output labels... ', end='')
-    Y = DataStore.load(path.join(data_dir,*('samples','output.store')))
-    print('done.')
-
-    token_map = token_store[0]
-
-    token_to_id = token_map.token_to_id
-    id_to_token = token_map.id_to_token
-    id_to_occur = token_map.id_to_occur
-    num_tokens = token_map.num_tokens
+    # dictionary
+    logger.info('Loading dictionary...')
+    token_store = DataStore.load(path.join(data_dir, *('samples',
+        'dictionary.store')))
+    dictionary = token_store[0]
+    token_to_id = dictionary.token_to_id
+    id_to_token = dictionary.id_to_token
+    id_to_occur = dictionary.id_to_occur
 
     vocab_size = len(token_to_id)
     num_samples = len(X)
-    num_batches = int(np.floor(num_samples/batch_size))
 
     # generate unigram table
     # ----------------------------------------- #
-    if num_neg>0:
+    if negative > 0:
 
-        print('Populating unigram table... ', end='')
+        logger.info('Populating unigram table... ')
         unigram_table = []
 
         id_to_occur_2 = dict()
@@ -108,83 +118,84 @@ def train(data_dir, recursive=True, sample_scale=0.001, win_size=5,
         den = sum(id_to_occur_2.values())
 
         for token_id, token_occur in id_to_occur_2.items():
-            n = int(token_occur/den*utable_size)
-            unigram_table += [token_id for ii in range(n)]
+            num_items = int(token_occur/den*utable_size)
+            unigram_table += [token_id for ii in range(num_items)]
 
         unigram_table = np.array(unigram_table)
-        print('done.')
+        unigram_table_size = len(unigram_table)
 
-
-    # start training
+    # training model
     # ----------------------------------------- #
 
-    print(f'Starting training with {vocab_size} words and {num_samples} samples...')
+    logger.info(f'Starting training with {vocab_size} words and {num_samples} samples...')
 
-    neural_net = NeuralNet(vocab_size, embedding_size, learning_rate, num_neg,
-        0.01)
+    neural_net = NeuralNet(vocab_size, embedding_size, learning_rate, negative)
 
-    # start taking time
-    begin_time = datetime.now()
+    # fixed values
+    if negative > 0:
+        # one-hot encoded ground truth
+        t_vector = np.zeros(negative+1, dtype='int')
+        t_vector[0] = 1
 
-    costs = []
+    else:
+        sampling_inds = None
+
+    # define checkpoints
+    checkpoints = set([k*round(num_samples/4) for k in [1, 2, 3, 4]])
 
     for epoch in range(num_epochs):
 
-        batch_inds = list(range(0, num_samples, batch_size))
+        logger.info(f'Starting epoch #{epoch}.')
 
-        np.random.shuffle(batch_inds)
+        #epoch_cost = 0
 
-        epoch_cost = 0
+        #for batch_idx,ii in enumerate(batch_inds):
+        for ii in range(num_samples):
 
-        for batch_idx,ii in enumerate(batch_inds):
+            input_label = X[ii]
+            output_label = Y[ii]
 
-            # load mini-batch samples
-            X_batch = np.array(X[ii:ii+batch_size])
-            Y_batch = np.array(Y[ii:ii+batch_size])
+            if negative > 0:
 
-            if num_neg>0:
+                # negative samples must be different from positive sample
+                sampling_inds = np.zeros(negative+1, dtype='int')
+                negative_labels = draw_negative(unigram_table,
+                    unigram_table_size, negative)
+                while np.any(np.equal(negative_labels, output_label)):
+                    negative_labels = draw_negative(unigram_table,
+                        unigram_table_size, negative)
 
-                # negative sampling
-                unique_y_labels = list(set(Y_batch))
-                num_pos = len(unique_y_labels)
-                sampling_inds = np.zeros(num_pos+num_neg, dtype='int')
-                sampling_inds[:num_pos] = np.array(unique_y_labels)
-                sampling_inds[num_pos:] = unigram_table[np.random.randint(0, high=len(unigram_table), size=num_neg, dtype='int')]
+                sampling_inds[0] = output_label
+                sampling_inds[1:] = negative_labels
 
             else:
-                sampling_inds = np.arange(vocab_size)
 
-            # Y one-hot
-            num_cols = Y_batch.size
-            Y_one_hot = np.zeros((vocab_size, num_cols))
-            Y_one_hot[Y_batch.flatten(), np.arange(num_cols)] = 1
-            
+                # one-hot encoded ground truth
+                t_vector = np.zeros(vocab_size, dtype='int')
+                t_vector[output_label] = 1
+
             # forward propagation
-            softmax_out, word_vec = neural_net.propagate(X_batch, sampling_inds)
+            y_vector, h_vector = neural_net.forward_propagate(input_label, sampling_inds)
 
             # back propagation
-            neural_net.back_propagate(X_batch, Y_one_hot, softmax_out, word_vec, sampling_inds)
+            neural_net.back_propagate(input_label, t_vector, y_vector, h_vector, sampling_inds)
 
-            epoch_cost += -(1/num_cols) * np.sum(np.sum(Y_one_hot[sampling_inds, :] * np.log(softmax_out + 0.001), axis=0, keepdims=True), axis=1)
-            costs.append(epoch_cost)
+            if ii in checkpoints:
 
-        if (num_epochs>=10 and epoch % round(num_epochs/10)) == 0:
+                # update learning rate
+                neural_net.learning_rate *= 0.98
 
-            # update learning rate
-            neural_net.learning_rate *= 0.98
+                # must find a proper way for evaluating epoch average cost
+                #epoch_cost = - np.sum(t_vector * np.log(y_vector + 0.001), axis=0, keepdims=True)
+                logger.info(f'Trained {ii} samples out of {num_samples} for epoch #{epoch}')
 
-            print(f'Cost at epoch {epoch}: {epoch_cost}')
+    logger.info('Training finished')
 
-    end_time = datetime.now()
-    print('Training time: {}'.format(end_time - begin_time))
+    # save a dict via pickle
+    output = dict(token_to_id=token_to_id, id_to_token=id_to_token,
+        word_embedding=neural_net.W1)
 
-    # saving word embedding
-    output = {
-        'token_to_id': token_to_id,
-        'id_to_token': id_to_token,
-        'word_embedding': neural_net.wrd_emb
-    }
+    with open('embedding', 'wb') as file:
+        pickle.dump(output, file)
 
-    with open('embedding', 'wb') as f:
-        pickle.dump(output, f)
-    print('Embedding saved to file.')
+    logger.info('Embedding saved to file.')

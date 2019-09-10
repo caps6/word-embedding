@@ -11,10 +11,16 @@ class DataStoreError(Exception):
     pass
 
 class DataStore:
-    """ A container class for storing and loading big data sequences. """
+    """ A container class for storing and loading big data sequences.
+
+    Data sequences are treated as lists. Data are persisted on files with
+    extension .store, items are accessed by loading one file at time.
+
+    """
 
     @classmethod
     def load(self, fn):
+        """Loads datastore from file."""
 
         try:
             with open(fn, 'rb') as f:
@@ -50,7 +56,7 @@ class DataStore:
         self._iter_count = 0
 
     def add(self, item):
-        """ Add an object to container. """
+        """Adds an object to container. """
 
         self._data.append(item)
         self._len += 1
@@ -59,6 +65,7 @@ class DataStore:
             self._persist()
 
     def commit(self):
+        """Persists pending data, creates index and saves it to file. """
 
         if self._data:
             self._persist()
@@ -80,7 +87,7 @@ class DataStore:
             raise DataStoreError(f'{fn}: Impossible to save data index.')
 
     def __add__(self, items):
-        """ Concatenate with list of tuple. """
+        """Concatenates with list of tuple. """
         if isinstance(items, list):
             self._data += items
         elif isinstance(items, tuple):
@@ -96,7 +103,7 @@ class DataStore:
         return self
 
     def _persist(self):
-        """ Persist block data to disk. """
+        """Persists block data to disk. """
 
         fn = uuid.uuid4().hex
 
@@ -126,7 +133,7 @@ class DataStore:
         return
 
     def __getitem__(self, key):
-        """ Access data. """
+        """Magic function to access data element by key. """
 
         if isinstance(key, slice):
             inds = list(range((key.start or 0), (key.stop or len(self)), (key.step or 1)))
@@ -142,13 +149,10 @@ class DataStore:
         for filedata in self.table:
 
             fn = filedata.file
-
-            #print(f'Checking {fn}')
             fn_inds = []
 
             while filedata.start<=ind and filedata.end>=ind:
 
-                #print(f'Adding {ind-filedata.start}')
                 fn_inds.append(ind-filedata.start)
 
                 if ii<len(inds)-1:
@@ -156,7 +160,6 @@ class DataStore:
                     ind = inds[ii]
                 else:
                     break
-            #print('No more items in this file')
 
             if fn_inds:
                 if not found: found = True
@@ -170,7 +173,7 @@ class DataStore:
         return items
 
     def _load_from_file(self, fn, inds):
-
+        """Loads data from file. """
         try:
             with open(fn, 'rb') as f:
                 data = pickle.load(f)
@@ -193,22 +196,3 @@ class DataStore:
         else:
             raise StopIteration
         return item
-
-
-if __name__=='__main__':
-    """
-    # init data store
-    N = 10000
-    data_store = DataStore('test', datapath='tmp', block_size=N)
-
-    # generate large data
-    for ii in range(5*N):
-        data_store.add(ii)
-
-    data_store.commit()
-    del data_store
-    """
-    data_store = DataStore.load('tmp/test.store')
-    print(len(data_store))
-    for x in data_store:
-        print(x)

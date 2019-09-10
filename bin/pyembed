@@ -10,42 +10,36 @@ DESCRIPTION = """An implementation of word2vec algorithm for word embedding."""
 parser = argparse.ArgumentParser(prog=NAME, description=DESCRIPTION,
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-parser.add_argument('data_dir', type=str,
-    help='Folder with documents of corpus')
-parser.add_argument('--recursive', action='store_false', dest='recursive',
-    default=True, help='Parse also subfolders')
+parser.add_argument('data_dir', type=str, help='Folder with documents of corpus')
 parser.add_argument('--win-size', action='store', type=int, dest='win_size',
     metavar='', default=5, help='Size of moving window for context words.')
 parser.add_argument('--dry-run', action='store_true', dest='dry_run',
     default=False, help='If true, loads corpus, generates and saves training \
     samples without performing NN training')
-parser.add_argument('--sample-scale', action='store', type=int,
-    dest='sample_scale', metavar='', default=0.001,
+parser.add_argument('--min-count', action='store', type=int,
+    dest='min_count', metavar='', default=5, help='Words appearing less than \
+    min-count are excluded from corpus')
+parser.add_argument('--sample', action='store', type=float,
+    dest='sample', metavar='', default=0.001,
     help='Scale factor for subsampling probability')
 parser.add_argument('--embedding-size', action='store', type=int,
-    dest='embedding_size', metavar='', default=300,
-    help='Embedding size')
-parser.add_argument('--learning-rate', action='store', type=int,
+    dest='embedding_size', metavar='', default=300, help='Embedding size')
+parser.add_argument('--learning-rate', action='store', type=float,
     dest='learning_rate', metavar='', default=0.025,
     help='NN learning rate for gradient descent')
-parser.add_argument('--epochs', action='store', type=int,
-    dest='num_epochs', metavar='', default=5000,
-    help='Num. epochs to train')
-parser.add_argument('--batch-size', action='store', type=int,
-    dest='batch_size', metavar='', default=256,
-    help='Size of batch for training samples')
-parser.add_argument('--negative', action='store', type=int,
-    dest='num_neg', metavar='', default=5,
-    help='Num. of negative samples. Negative sampling is applied only if \
-    greater than 0')
+parser.add_argument('--epochs', action='store', type=int, dest='num_epochs',
+    metavar='', default=10, help='Num. epochs to train')
+parser.add_argument('--negative', action='store', type=int, dest='negative',
+    metavar='', default=5, help='Num. of negative samples. Negative sampling \
+    is applied only if greater than 0')
 parser.add_argument('--unigram-table', action='store', type=int,
     dest='utable_size', metavar='', default=100000000,
     help='Size of table for unigram distribution')
 
 args = parser.parse_args(sys_argv[1:])
 
-pyembed.train(args.data_dir, recursive=args.recursive,
-    sample_scale=args.sample_scale, win_size=args.win_size, dry_run=args.dry_run,
+pyembed.train(args.data_dir, win_size=args.win_size, dry_run=args.dry_run,
+    min_count=args.min_count, sample=args.sample,
     embedding_size=args.embedding_size, learning_rate=args.learning_rate,
-    num_epochs=args.num_epochs, batch_size=args.batch_size,
-    num_neg=args.num_neg, utable_size=args.utable_size)
+    num_epochs=args.num_epochs, negative=args.negative,
+    utable_size=args.utable_size)
